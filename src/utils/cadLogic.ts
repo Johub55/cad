@@ -14,7 +14,20 @@ export const DEFAULT_DEPARTMENTS: ServerDepartment[] = [
 
 export function cleanUsername(input: string): string {
   if (!input) return '';
-  return input.toLowerCase().replace(/[^a-z0-9_.-]/g, '').trim();
+  return input.toLowerCase().replace(/[^a-z0-9_-]/g, '').trim();
+}
+
+export function cleanEmail(input: string): string {
+  if (!input) return '';
+  return input.toLowerCase().trim();
+}
+
+export function isValidEmail(input: string): boolean {
+  if (!input) return false;
+  const cleaned = cleanEmail(input);
+  // Standard RFC 5322 compatible regex for email validation
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  return emailRegex.test(cleaned);
 }
 
 export function generateServerCode(): string {

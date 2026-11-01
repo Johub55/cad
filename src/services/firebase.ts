@@ -9,7 +9,9 @@ import {
   deleteDoc,
   onSnapshot,
   getDocs,
-  getDocFromServer
+  getDocFromServer,
+  query,
+  where
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import rawFirebaseConfig from '../../firebase-applet-config.json';
@@ -95,29 +97,63 @@ export const COLLECTIONS = {
 export const INITIAL_SERVERS: CadServer[] = [];
 
 // User Account Firestore Operations
-export async function getUserAccount(username: string): Promise<UserAccount | null> {
-  const clean = username.trim().toLowerCase();
+export async function getUserAccount(identifier: string): Promise<UserAccount | null> {
+  const clean = identifier.trim().toLowerCase();
+  if (!clean) return null;
+
   try {
+    // If identifier contains @, it's an email lookup
+    if (clean.includes('@')) {
+      return await getUserAccountByEmail(clean);
+    }
+
+    // Try direct username document lookup
     const snap = await getDoc(doc(db, COLLECTIONS.USERS, clean));
     if (snap.exists()) {
       return snap.data() as UserAccount;
     }
-    return null;
+
+    // Fallback: check if the identifier was an email without standard format
+    return await getUserAccountByEmail(clean);
   } catch (err) {
     console.error('Fout bij ophalen gebruikersaccount:', err);
     return null;
   }
 }
 
-export async function registerUserAccount(account: UserAccount): Promise<void> {
-  const clean = account.username.trim().toLowerCase();
+export async function getUserAccountByEmail(email: string): Promise<UserAccount | null> {
+  const clean = email.trim().toLowerCase();
+  if (!clean) return null;
+
   try {
-    await setDoc(doc(db, COLLECTIONS.USERS, clean), {
-      ...account,
-      username: clean,
-    });
+    const q = query(
+      collection(db, COLLECTIONS.USERS),
+      where('email', '==', clean)
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const docData = snap.docs[0].data();
+      return docData as UserAccount;
+    }
+    return null;
   } catch (err) {
-    console.error('Fout bij opslaan gebruikersaccount:', err);
+    console.error('Fout bij ophalen account op e-mailadres:', err);
+    return null;
+  }
+}
+
+export async function registerUserAccount(account: UserAccount): Promise<void> {
+  const cleanUsername = account.username.trim().toLowerCase();
+  const cleanEmail = account.email.trim().toLowerCase();
+  try {
+    const accountPayload: UserAccount = {
+      ...account,
+      username: cleanUsername,
+      email: cleanEmail,
+    };
+    await setDoc(doc(db, COLLECTIONS.USERS, cleanUsername), accountPayload);
+  } catch (err) {
+    console.error('Fout bij opslaan gebruikersaccount in Firestore:', err);
     throw err;
   }
 }

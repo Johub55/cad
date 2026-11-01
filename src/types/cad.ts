@@ -39,8 +39,9 @@ export interface CadServer {
 
 export interface UserAccount {
   username: string;
+  email: string; // Geregistreerd e-mailadres
   display_name: string;
-  password: string; // Stored user password
+  password: string; // Beveiligd wachtwoord
   joined_server_ids: string[];
   created_server_ids: string[];
   created_at: string;

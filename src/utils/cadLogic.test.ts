@@ -4,6 +4,8 @@ import {
   checkServerJoinPassword,
   checkServerAdminPassword,
   cleanUsername,
+  cleanEmail,
+  isValidEmail,
   generateServerCode,
   DEFAULT_DEPARTMENTS,
   formatLicensePlate,
@@ -52,4 +54,19 @@ test('calculateTotalFines sums all fine amounts correctly', () => {
     ]
   };
   assert.equal(calculateTotalFines(citizen), 465);
+});
+
+test('cleanEmail normalizes and trims email addresses', () => {
+  assert.equal(cleanEmail('  Joas@Thorig.EU  '), 'joas@thorig.eu');
+  assert.equal(cleanEmail('AGENT@POLITIE.NL'), 'agent@politie.nl');
+  assert.equal(cleanEmail(''), '');
+});
+
+test('isValidEmail validates standard email formats strictly', () => {
+  assert.equal(isValidEmail('joas@thorig.eu'), true);
+  assert.equal(isValidEmail('agent.robin@politie.hamburg.de'), true);
+  assert.equal(isValidEmail('invalid-email'), false);
+  assert.equal(isValidEmail('missing@domain'), false);
+  assert.equal(isValidEmail('@nodomain.com'), false);
+  assert.equal(isValidEmail(''), false);
 });

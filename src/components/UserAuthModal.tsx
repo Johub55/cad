@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { Shield, KeyRound, User, Lock, UserPlus, LogIn, AlertCircle } from 'lucide-react';
+import { Shield, Mail, User, Lock, UserPlus, LogIn, AlertCircle } from 'lucide-react';
 import { UserAccount } from '../types/cad';
-import { cleanUsername } from '../utils/cadLogic';
+import { cleanUsername, cleanEmail, isValidEmail } from '../utils/cadLogic';
 
 interface UserAuthModalProps {
   onLoginSuccess: (user: UserAccount) => void;
-  onGetUserAccount: (username: string) => Promise<UserAccount | null>;
+  onGetUserAccount: (identifier: string) => Promise<UserAccount | null>;
   onRegisterAccount: (account: UserAccount) => Promise<void>;
 }
 
@@ -17,11 +17,12 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   
   // Login fields
-  const [loginUsername, setLoginUsername] = useState('');
+  const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
 
   // Register fields
   const [regUsername, setRegUsername] = useState('');
+  const [regEmail, setRegEmail] = useState('');
   const [regDisplayName, setRegDisplayName] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
@@ -33,17 +34,17 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
     e.preventDefault();
     setError('');
 
-    const clean = cleanUsername(loginUsername);
-    if (!clean || !loginPassword.trim()) {
-      setError('Vul alstublieft je gebruikersnaam en wachtwoord in.');
+    const trimmedIdentifier = loginIdentifier.trim();
+    if (!trimmedIdentifier || !loginPassword.trim()) {
+      setError('Vul alstublieft je gebruikersnaam/e-mailadres en wachtwoord in.');
       return;
     }
 
     setSubmitting(true);
     try {
-      const user = await onGetUserAccount(clean);
+      const user = await onGetUserAccount(trimmedIdentifier);
       if (!user) {
-        setError('Geen account gevonden met deze gebruikersnaam. Maak eerst een account aan.');
+        setError('Geen account gevonden met deze gebruikersnaam of dit e-mailadres. Maak eerst een account aan.');
         return;
       }
 
@@ -53,8 +54,8 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
       }
 
       onLoginSuccess(user);
-    } catch (err) {
-      setError('Fout bij het inloggen. Controleer uw verbinding.');
+    } catch {
+      setError('Fout bij het inloggen. Controleer uw internetverbinding.');
     } finally {
       setSubmitting(false);
     }
@@ -64,14 +65,20 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
     e.preventDefault();
     setError('');
 
-    const clean = cleanUsername(regUsername);
-    if (!clean) {
-      setError('Voer een geldige gebruikersnaam in (minimaal 3 letters/cijfers).');
+    const cleanUser = cleanUsername(regUsername);
+    if (!cleanUser) {
+      setError('Voer een geldige gebruikersnaam in (alleen letters, cijfers, _ of -).');
       return;
     }
 
-    if (clean.length < 3) {
+    if (cleanUser.length < 3) {
       setError('Gebruikersnaam moet minimaal 3 tekens lang zijn.');
+      return;
+    }
+
+    const emailCleaned = cleanEmail(regEmail);
+    if (!isValidEmail(emailCleaned)) {
+      setError('Voer een geldig e-mailadres in (bijvoorbeeld agent@politie.nl).');
       return;
     }
 
@@ -81,21 +88,30 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
     }
 
     if (regPassword.trim() !== regConfirmPassword.trim()) {
-      setError('Wachtwoorden komen niet overeen.');
+      setError('De wachtwoorden komen niet overeen.');
       return;
     }
 
     setSubmitting(true);
     try {
-      const existing = await onGetUserAccount(clean);
-      if (existing) {
+      // 1. Check if username is already registered in the Cloud Database
+      const existingUser = await onGetUserAccount(cleanUser);
+      if (existingUser) {
         setError('Deze gebruikersnaam is al in gebruik. Kies een andere naam of log in.');
         return;
       }
 
+      // 2. Check if email is already registered in the Cloud Database
+      const existingEmail = await onGetUserAccount(emailCleaned);
+      if (existingEmail) {
+        setError('Dit e-mailadres is al gekoppeld aan een ander account. Log in of gebruik een ander adres.');
+        return;
+      }
+
       const newAccount: UserAccount = {
-        username: clean,
-        display_name: regDisplayName.trim() || clean,
+        username: cleanUser,
+        email: emailCleaned,
+        display_name: regDisplayName.trim() || cleanUser,
         password: regPassword.trim(),
         joined_server_ids: [],
         created_server_ids: [],
@@ -105,8 +121,8 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
 
       await onRegisterAccount(newAccount);
       onLoginSuccess(newAccount);
-    } catch (err) {
-      setError('Fout bij het registreren van uw account.');
+    } catch {
+      setError('Fout bij het registreren in de cloud database. Probeer het opnieuw.');
     } finally {
       setSubmitting(false);
     }
@@ -176,13 +192,13 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5 flex items-center gap-1.5">
                 <User className="w-3.5 h-3.5 text-blue-400" />
-                Gebruikersnaam
+                Gebruikersnaam of E-mailadres
               </label>
               <input
                 type="text"
-                value={loginUsername}
-                onChange={(e) => setLoginUsername(e.target.value)}
-                placeholder="Voer gebruikersnaam in"
+                value={loginIdentifier}
+                onChange={(e) => setLoginIdentifier(e.target.value)}
+                placeholder="bv. jansen112 of agent@politie.nl"
                 required
                 className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 focus:border-blue-500 text-white text-sm outline-none font-mono"
               />
@@ -218,7 +234,8 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
         {activeTab === 'register' && (
           <form onSubmit={handleRegister} className="space-y-3.5">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1 flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5 text-indigo-400" />
                 Kies Gebruikersnaam
               </label>
               <input
@@ -229,6 +246,24 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
                 required
                 className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 focus:border-indigo-500 text-white text-sm outline-none font-mono"
               />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1 flex items-center gap-1.5">
+                <Mail className="w-3.5 h-3.5 text-blue-400" />
+                E-mailadres (verplicht)
+              </label>
+              <input
+                type="email"
+                value={regEmail}
+                onChange={(e) => setRegEmail(e.target.value)}
+                placeholder="bv. joas@thorig.eu of agent@politie.nl"
+                required
+                className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 focus:border-blue-500 text-white text-sm outline-none font-mono"
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                Wordt gebruikt om in te loggen en accountgegevens veilig in de cloud te bewaren.
+              </p>
             </div>
 
             <div>
@@ -246,7 +281,8 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
                 Kies een Wachtwoord
               </label>
               <input
@@ -279,7 +315,7 @@ export const UserAuthModal: React.FC<UserAuthModalProps> = ({
               className="w-full mt-2 py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-sm tracking-wide shadow-lg shadow-indigo-600/30 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               <UserPlus className="w-4 h-4" />
-              {submitting ? 'Account aanmaken...' : 'Account Registreren'}
+              {submitting ? 'Account aanmaken in Cloud...' : 'Account Registreren (Cloud)'}
             </button>
           </form>
         )}

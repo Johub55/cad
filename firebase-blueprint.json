@@ -6,6 +6,7 @@
       "type": "object",
       "properties": {
         "username": { "type": "string", "maxLength": 64 },
+        "email": { "type": "string", "maxLength": 128 },
         "password": { "type": "string", "maxLength": 128 },
         "display_name": { "type": "string", "maxLength": 128 },
         "joined_server_ids": { "type": "array" },
@@ -13,7 +14,7 @@
         "created_at": { "type": "string", "maxLength": 64 },
         "last_login": { "type": "string", "maxLength": 64 }
       },
-      "required": ["username", "password"]
+      "required": ["username", "email", "password"]
     },
     "CadServer": {
       "title": "CadServer",

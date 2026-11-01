@@ -11,11 +11,11 @@ import {
   UserCheck,
   Users,
   LogOut,
-  BellRing
+  Server,
+  Sparkles
 } from 'lucide-react';
 import { UserSession, UnitStatus, SystemState } from '../types/cad';
 import { getStatusColor } from '../utils/cadLogic';
-import { cadAudio } from '../services/audio';
 
 interface HeaderProps {
   session: UserSession;
@@ -26,6 +26,7 @@ interface HeaderProps {
   onStatusChange: (status: UnitStatus) => Promise<void>;
   onTriggerPanic: () => Promise<void>;
   onOpenAdmin: () => void;
+  onSwitchServer: () => void;
   onLogout: () => void;
   isMuted: boolean;
   onToggleMute: () => void;
@@ -40,6 +41,7 @@ export const Header: React.FC<HeaderProps> = ({
   onStatusChange,
   onTriggerPanic,
   onOpenAdmin,
+  onSwitchServer,
   onLogout,
   isMuted,
   onToggleMute,
@@ -64,7 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
             </span>
             <span className="font-bold uppercase tracking-wider text-[11px] text-blue-400 font-mono">
-              [MELDKAMER BERICHT]:
+              [MELDKAMER]:
             </span>
             <span className="text-slate-200 truncate">{systemState.broadcast_message}</span>
           </div>
@@ -79,32 +81,38 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Main Top Bar */}
       <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3">
         
-        {/* Left: Branding & Callsign */}
+        {/* Left: Branding & Callsign & Server Identifier */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-md shadow-blue-600/20 border border-blue-400/30">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-md shadow-blue-600/20 border border-blue-400/30 shrink-0">
             <Shield className="w-6 h-6 text-white" />
           </div>
 
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="font-black text-sm sm:text-base tracking-tight text-white font-mono">
-                EMERGENCY HAMBURG
+                {session.serverName || 'EMERGENCY HAMBURG'}
               </span>
-              <span className="hidden sm:inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase font-mono bg-blue-950 text-blue-400 border border-blue-800">
-                CAD / MDT
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase font-mono bg-blue-950 text-blue-400 border border-blue-800">
+                {session.serverId}
               </span>
+              {session.isOwner && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase font-mono bg-purple-950 text-purple-300 border border-purple-700 flex items-center gap-1">
+                  <Sparkles className="w-2.5 h-2.5" />
+                  Maker / Eigenaar
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2 text-xs text-slate-400 font-mono">
               <span className="font-bold text-slate-200">
                 [{session.callsign}] {session.officerName}
               </span>
               <span className="text-slate-600">•</span>
-              <span className="text-blue-400">{session.department}</span>
+              <span className="text-blue-400 truncate max-w-[140px] sm:max-w-none">{session.department}</span>
             </div>
           </div>
         </div>
 
-        {/* Center / Right: Quick Status 1-4 Switcher for Mobile & Desktop */}
+        {/* Center / Right: Quick Status 1-4 Switcher & Server Switcher */}
         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
           <div className="flex items-center bg-slate-900 p-1 rounded-xl border border-slate-800">
             {statuses.map((s) => {
@@ -128,10 +136,10 @@ export const Header: React.FC<HeaderProps> = ({
             })}
           </div>
 
-          {/* NOODKNOP: Large touch-friendly Red Panic Button */}
+          {/* NOODKNOP */}
           <button
             onClick={onTriggerPanic}
-            title="Activeer Noodknop - zendt direct noodoproep naar alle eenheden"
+            title="Activeer Noodknop - zendt direct noodoproep naar alle eenheden op deze server"
             className="py-1.5 px-3 sm:px-4 rounded-xl bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white font-black text-xs sm:text-sm font-mono tracking-wider uppercase shadow-lg shadow-red-700/40 flex items-center gap-1.5 cursor-pointer active:scale-95 transition border border-red-400/30 animate-pulse"
           >
             <AlertTriangle className="w-4 h-4 text-white" />
@@ -148,17 +156,27 @@ export const Header: React.FC<HeaderProps> = ({
             {isMuted ? <VolumeX className="w-4 h-4 text-amber-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
           </button>
 
-          {/* Admin / Meldkamer Modal Trigger */}
+          {/* Admin / Server Settings Trigger */}
           <button
             onClick={onOpenAdmin}
-            title="Open Meldkamer / Admin Paneel"
-            className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-blue-400 transition cursor-pointer flex items-center gap-1 text-xs font-semibold"
+            title="Open Meldkamer / Admin & Server Instellingen"
+            className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-amber-400 transition cursor-pointer flex items-center gap-1 text-xs font-semibold"
           >
             <Settings className="w-4 h-4" />
-            <span className="hidden lg:inline">Meldkamer</span>
+            <span className="hidden lg:inline">Beheer</span>
           </button>
 
-          {/* Logout button */}
+          {/* Switch Server */}
+          <button
+            onClick={onSwitchServer}
+            title="Wissel van Server of Maak een Nieuwe Server"
+            className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-blue-400 transition cursor-pointer flex items-center gap-1 text-xs font-semibold"
+          >
+            <Server className="w-4 h-4" />
+            <span className="hidden lg:inline">Servers</span>
+          </button>
+
+          {/* Logout */}
           <button
             onClick={onLogout}
             title="Afmelden uit CAD"
@@ -169,7 +187,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Navigation Tabs (Side-by-side or stacked on mobile/tablet) */}
+      {/* Navigation Tabs */}
       <div className="bg-slate-900/60 border-t border-slate-800/80 px-2 sm:px-4">
         <div className="max-w-7xl mx-auto flex items-center gap-1 overflow-x-auto py-1 scrollbar-none">
           

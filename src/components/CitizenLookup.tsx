@@ -24,7 +24,7 @@ interface CitizenLookupProps {
   onToggleWanted: (citizenId: string, currentWanted: boolean) => Promise<void>;
   onUpdateLicense: (citizenId: string, status: Citizen['driver_license_status']) => Promise<void>;
   onAddFine: (citizenId: string, fine: Omit<Fine, 'id'>) => Promise<void>;
-  onAddCitizen: (citizen: Omit<Citizen, 'id' | 'fines_list' | 'updated_at'>) => Promise<void>;
+  onAddCitizen: (citizen: Omit<Citizen, 'id' | 'fines_list' | 'updated_at' | 'server_id'>) => Promise<void>;
   onUpdateNotes: (citizenId: string, notes: string) => Promise<void>;
 }
 

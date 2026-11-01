@@ -6,6 +6,21 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    match /users/{userId} {
+      allow get, write: if isValidId(userId);
+      allow list: if true;
+    }
+
+    match /servers/{serverId} {
+      allow get, write: if isValidId(serverId);
+      allow list: if true;
+
+      match /{subcollection}/{docId} {
+        allow get, write: if isValidId(docId);
+        allow list: if true;
+      }
+    }
+
     match /vehicles/{vehicleId} {
       allow get, write: if isValidId(vehicleId);
       allow list: if true;

@@ -12,13 +12,14 @@ import {
   db,
   COLLECTIONS,
   testConnection,
-  seedInitialDataIfNeeded,
+  getUserAccount,
+  registerUserAccount,
+  updateUserJoinedServers,
+  addOrUpdateServerMember,
+  seedServerDemoData,
   handleFirestoreError,
   OperationType,
-  INITIAL_VEHICLES,
-  INITIAL_CITIZENS,
-  INITIAL_ACTIVE_UNITS,
-  INITIAL_MAP_MARKERS
+  INITIAL_SERVERS
 } from './services/firebase';
 import { cadAudio } from './services/audio';
 import {
@@ -29,10 +30,14 @@ import {
   SystemState,
   UserSession,
   UnitStatus,
-  Fine
+  Fine,
+  CadServer,
+  UserAccount,
+  ServerMember
 } from './types/cad';
 import { Header } from './components/Header';
-import { LoginModal } from './components/LoginModal';
+import { UserAuthModal } from './components/UserAuthModal';
+import { ServerHubModal } from './components/ServerHubModal';
 import { PanicOverlay } from './components/PanicOverlay';
 import { InteractiveMap } from './components/InteractiveMap';
 import { ActiveUnitsList } from './components/ActiveUnitsList';
@@ -41,7 +46,17 @@ import { CitizenLookup } from './components/CitizenLookup';
 import { AdminModal } from './components/AdminModal';
 
 export default function App() {
-  // Session & Authentication State
+  // 1. Current Authenticated User Account (Stored locally & verified in Firestore)
+  const [currentUserAccount, setCurrentUserAccount] = useState<UserAccount | null>(() => {
+    try {
+      const saved = localStorage.getItem('emh_user_account');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // 2. Active Session in a specific server
   const [session, setSession] = useState<UserSession | null>(() => {
     try {
       const saved = localStorage.getItem('emh_cad_session');
@@ -51,49 +66,88 @@ export default function App() {
     }
   });
 
-  // Current Unit Status
+  const [isSwitchingServer, setIsSwitchingServer] = useState(false);
+
+  // 3. Real-time Servers List
+  const [servers, setServers] = useState<CadServer[]>([]);
+
+  // 4. Current Unit Status
   const [currentStatus, setCurrentStatus] = useState<UnitStatus>('Status 1');
 
-  // Active Tab
+  // 5. Active Tab
   const [activeTab, setActiveTab] = useState<'map' | 'units' | 'vehicles' | 'citizens'>('map');
 
-  // Modals
+  // 6. Modals & Settings
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
 
-  // Firestore Real-time Collections
+  // 7. Scoped Collections (Per active server)
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [citizens, setCitizens] = useState<Citizen[]>([]);
   const [units, setUnits] = useState<ActiveUnit[]>([]);
   const [markers, setMarkers] = useState<MapMarker[]>([]);
-  const [systemState, setSystemState] = useState<SystemState>({
-    active_panic: false,
-    panic_unit: '',
-    panic_time: 0,
-    alert_level: 'Normaal',
-    broadcast_message: 'Emergency Hamburg CAD verbonden.',
-    updated_at: new Date().toISOString(),
-  });
 
-  // 1. Initial Connection Test & Data Seeding
+  // Current Server Document
+  const currentServer = servers.find((s) => s.id === session?.serverId) || null;
+
+  const currentSystemState: SystemState = {
+    active_panic: currentServer?.active_panic || false,
+    panic_unit: currentServer?.panic_unit || '',
+    panic_time: currentServer?.panic_time || 0,
+    alert_level: currentServer?.alert_level || 'Normaal',
+    broadcast_message: currentServer?.broadcast_message || 'Emergency Hamburg CAD verbonden.',
+    updated_at: currentServer?.updated_at || new Date().toISOString(),
+  };
+
+  // 1. Connection check on boot
   useEffect(() => {
     testConnection();
-    seedInitialDataIfNeeded();
   }, []);
 
-  // 2. Real-time Listeners (Firestore v10 onSnapshot)
+  // 2. Real-time Servers Listener
   useEffect(() => {
+    const unsubServers = onSnapshot(
+      collection(db, COLLECTIONS.SERVERS),
+      (snap) => {
+        const list: CadServer[] = [];
+        snap.forEach((d) => list.push({ ...d.data(), id: d.id } as CadServer));
+        setServers(list);
+      },
+      (err) => {
+        console.warn('Firestore servers listener warning:', err);
+      }
+    );
+
+    return () => unsubServers();
+  }, []);
+
+  // 3. Real-time Collections Listeners (Scoped to active server)
+  useEffect(() => {
+    if (!session?.serverId) {
+      setVehicles([]);
+      setCitizens([]);
+      setUnits([]);
+      setMarkers([]);
+      return;
+    }
+
+    const serverId = session.serverId;
+
     // Vehicles
     const unsubVehicles = onSnapshot(
       collection(db, COLLECTIONS.VEHICLES),
       (snap) => {
         const list: Vehicle[] = [];
-        snap.forEach((d) => list.push({ ...d.data(), id: d.id } as Vehicle));
-        setVehicles(list.length > 0 ? list : INITIAL_VEHICLES);
+        snap.forEach((d) => {
+          const data = d.data() as Vehicle;
+          if (data.server_id === serverId) {
+            list.push({ ...data, id: d.id, server_id: serverId });
+          }
+        });
+        setVehicles(list);
       },
       (err) => {
-        console.warn('Firestore vehicles listener warning (falling back to initial data):', err);
-        setVehicles((prev) => (prev.length > 0 ? prev : INITIAL_VEHICLES));
+        console.warn('Firestore vehicles listener warning:', err);
       }
     );
 
@@ -102,12 +156,16 @@ export default function App() {
       collection(db, COLLECTIONS.CITIZENS),
       (snap) => {
         const list: Citizen[] = [];
-        snap.forEach((d) => list.push({ ...d.data(), id: d.id } as Citizen));
-        setCitizens(list.length > 0 ? list : INITIAL_CITIZENS);
+        snap.forEach((d) => {
+          const data = d.data() as Citizen;
+          if (data.server_id === serverId) {
+            list.push({ ...data, id: d.id, server_id: serverId });
+          }
+        });
+        setCitizens(list);
       },
       (err) => {
-        console.warn('Firestore citizens listener warning (falling back to initial data):', err);
-        setCitizens((prev) => (prev.length > 0 ? prev : INITIAL_CITIZENS));
+        console.warn('Firestore citizens listener warning:', err);
       }
     );
 
@@ -116,21 +174,23 @@ export default function App() {
       collection(db, COLLECTIONS.ACTIVE_UNITS),
       (snap) => {
         const list: ActiveUnit[] = [];
-        snap.forEach((d) => list.push({ ...d.data(), id: d.id } as ActiveUnit));
-        const finalUnits = list.length > 0 ? list : INITIAL_ACTIVE_UNITS;
-        setUnits(finalUnits);
+        snap.forEach((d) => {
+          const data = d.data() as ActiveUnit;
+          if (data.server_id === serverId) {
+            list.push({ ...data, id: d.id, server_id: serverId });
+          }
+        });
+        setUnits(list);
 
-        // Keep current unit's status in sync if found
         if (session) {
-          const found = finalUnits.find((u) => u.unit_name.toUpperCase() === session.callsign.toUpperCase());
+          const found = list.find((u) => u.unit_name.toUpperCase() === session.callsign.toUpperCase());
           if (found && found.current_status) {
             setCurrentStatus(found.current_status);
           }
         }
       },
       (err) => {
-        console.warn('Firestore active units listener warning (falling back to initial data):', err);
-        setUnits((prev) => (prev.length > 0 ? prev : INITIAL_ACTIVE_UNITS));
+        console.warn('Firestore active units listener warning:', err);
       }
     );
 
@@ -139,26 +199,17 @@ export default function App() {
       collection(db, COLLECTIONS.MAP_MARKERS),
       (snap) => {
         const list: MapMarker[] = [];
-        snap.forEach((d) => list.push({ ...d.data(), id: d.id } as MapMarker));
+        snap.forEach((d) => {
+          const data = d.data() as MapMarker;
+          if (data.server_id === serverId) {
+            list.push({ ...data, id: d.id, server_id: serverId });
+          }
+        });
         list.sort((a, b) => b.timestamp - a.timestamp);
-        setMarkers(list.length > 0 ? list : INITIAL_MAP_MARKERS);
+        setMarkers(list);
       },
       (err) => {
-        console.warn('Firestore map markers listener warning (falling back to initial data):', err);
-        setMarkers((prev) => (prev.length > 0 ? prev : INITIAL_MAP_MARKERS));
-      }
-    );
-
-    // System State (Global)
-    const unsubSys = onSnapshot(
-      doc(db, COLLECTIONS.SYSTEM_STATE, 'global'),
-      (snap) => {
-        if (snap.exists()) {
-          setSystemState(snap.data() as SystemState);
-        }
-      },
-      (err) => {
-        console.warn('Firestore system state listener warning:', err);
+        console.warn('Firestore map markers listener warning:', err);
       }
     );
 
@@ -167,16 +218,17 @@ export default function App() {
       unsubCitizens();
       unsubUnits();
       unsubMarkers();
-      unsubSys();
     };
-  }, [session]);
+  }, [session?.serverId, session?.callsign]);
 
-  // Sync unit to active_units when logging in
+  // Sync unit to active_units
   const registerOrUpdateActiveUnit = useCallback(
     async (sess: UserSession, status: UnitStatus) => {
-      const unitDocId = `unit-${sess.callsign.toLowerCase().replace(/[^a-z0-9-]/g, '')}`;
+      const unitDocId = `unit-${sess.serverId.toLowerCase()}-${sess.callsign.toLowerCase().replace(/[^a-z0-9-]/g, '')}`;
       const payload: ActiveUnit = {
         id: unitDocId,
+        server_id: sess.serverId,
+        username: sess.username,
         unit_name: sess.callsign,
         current_status: status,
         department: sess.department,
@@ -188,25 +240,48 @@ export default function App() {
       try {
         await setDoc(doc(db, COLLECTIONS.ACTIVE_UNITS, unitDocId), payload);
       } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.ACTIVE_UNITS}/${unitDocId}`);
+        console.error('Fout bij registreren actieve eenheid:', err);
       }
     },
     []
   );
 
-  const handleLogin = async (newSession: UserSession) => {
-    setSession(newSession);
+  // Authentication Handlers
+  const handleUserLoginSuccess = (account: UserAccount) => {
+    setCurrentUserAccount(account);
     try {
-      localStorage.setItem('emh_cad_session', JSON.stringify(newSession));
+      localStorage.setItem('emh_user_account', JSON.stringify(account));
     } catch {
       // Ignored
     }
-    await registerOrUpdateActiveUnit(newSession, 'Status 1');
-    cadAudio.playStatusGong(1);
   };
 
-  const handleLogout = () => {
+  const handleLogoutAccount = () => {
+    // If unit was active in a session, clean it up
+    if (session) {
+      const unitDocId = `unit-${session.serverId.toLowerCase()}-${session.callsign.toLowerCase().replace(/[^a-z0-9-]/g, '')}`;
+      deleteDoc(doc(db, COLLECTIONS.ACTIVE_UNITS, unitDocId)).catch(() => {});
+    }
+
+    setCurrentUserAccount(null);
     setSession(null);
+    setIsSwitchingServer(false);
+    try {
+      localStorage.removeItem('emh_user_account');
+      localStorage.removeItem('emh_cad_session');
+    } catch {
+      // Ignored
+    }
+  };
+
+  // Leave active server and return to "Mijn Servers"
+  const handleLeaveServer = () => {
+    if (session) {
+      const unitDocId = `unit-${session.serverId.toLowerCase()}-${session.callsign.toLowerCase().replace(/[^a-z0-9-]/g, '')}`;
+      deleteDoc(doc(db, COLLECTIONS.ACTIVE_UNITS, unitDocId)).catch(() => {});
+    }
+    setSession(null);
+    setIsSwitchingServer(false);
     try {
       localStorage.removeItem('emh_cad_session');
     } catch {
@@ -214,23 +289,118 @@ export default function App() {
     }
   };
 
+  // Join Server Handler
+  const handleJoinServer = async (targetServer: CadServer, newSession: UserSession) => {
+    if (!currentUserAccount) return;
+
+    // 1. Add / Update server member
+    const memberRole: ServerMember['role'] = newSession.isOwner
+      ? 'Eigenaar'
+      : newSession.isAdmin
+      ? 'Beheerder'
+      : 'Agent';
+
+    const memberPayload: ServerMember = {
+      username: currentUserAccount.username,
+      display_name: currentUserAccount.display_name,
+      callsign: newSession.callsign,
+      department: newSession.department,
+      role: memberRole,
+      joined_at: new Date().toISOString(),
+      is_online: true,
+      last_active: new Date().toISOString(),
+    };
+
+    await addOrUpdateServerMember(targetServer.id, memberPayload);
+
+    // 2. Update user account joined servers list
+    await updateUserJoinedServers(currentUserAccount.username, targetServer.id, false);
+
+    // Update local user state
+    const joinedSet = new Set(currentUserAccount.joined_server_ids || []);
+    joinedSet.add(targetServer.id);
+    const updatedAccount: UserAccount = {
+      ...currentUserAccount,
+      joined_server_ids: Array.from(joinedSet),
+    };
+    setCurrentUserAccount(updatedAccount);
+    try {
+      localStorage.setItem('emh_user_account', JSON.stringify(updatedAccount));
+      localStorage.setItem('emh_cad_session', JSON.stringify(newSession));
+    } catch {
+      // Ignored
+    }
+
+    setSession(newSession);
+    setIsSwitchingServer(false);
+
+    await registerOrUpdateActiveUnit(newSession, 'Status 1');
+    cadAudio.playStatusGong(1);
+  };
+
+  // Create Server Handler
+  const handleCreateServer = async (
+    serverData: Omit<CadServer, 'created_at' | 'updated_at'>,
+    newSession: UserSession
+  ) => {
+    if (!currentUserAccount) return;
+
+    const fullServer: CadServer = {
+      ...serverData,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    try {
+      await setDoc(doc(db, COLLECTIONS.SERVERS, serverData.id), fullServer);
+    } catch (err) {
+      console.error('Fout bij opslaan nieuwe server in Firestore:', err);
+    }
+
+    // Update user account created & joined servers
+    await updateUserJoinedServers(currentUserAccount.username, serverData.id, true);
+
+    const joinedSet = new Set(currentUserAccount.joined_server_ids || []);
+    joinedSet.add(serverData.id);
+    const createdSet = new Set(currentUserAccount.created_server_ids || []);
+    createdSet.add(serverData.id);
+
+    const updatedAccount: UserAccount = {
+      ...currentUserAccount,
+      joined_server_ids: Array.from(joinedSet),
+      created_server_ids: Array.from(createdSet),
+    };
+    setCurrentUserAccount(updatedAccount);
+
+    try {
+      localStorage.setItem('emh_user_account', JSON.stringify(updatedAccount));
+      localStorage.setItem('emh_cad_session', JSON.stringify(newSession));
+    } catch {
+      // Ignored
+    }
+
+    setSession(newSession);
+    setIsSwitchingServer(false);
+
+    await registerOrUpdateActiveUnit(newSession, 'Status 1');
+    cadAudio.playStatusGong(1);
+  };
+
   // FEATURE 3: Portofoon Status-Gong & Real-time Update
   const handleStatusChange = async (newStatus: UnitStatus) => {
     setCurrentStatus(newStatus);
 
-    // Play TETRA/Motorola radio chirp
     const num = newStatus === 'Status 4' ? 4 : newStatus === 'Status 3' ? 3 : newStatus === 'Status 2' ? 2 : 1;
     cadAudio.playStatusGong(num);
 
     if (session) {
-      const unitDocId = `unit-${session.callsign.toLowerCase().replace(/[^a-z0-9-]/g, '')}`;
+      const unitDocId = `unit-${session.serverId.toLowerCase()}-${session.callsign.toLowerCase().replace(/[^a-z0-9-]/g, '')}`;
       try {
         await updateDoc(doc(db, COLLECTIONS.ACTIVE_UNITS, unitDocId), {
           current_status: newStatus,
           updated_at: new Date().toISOString(),
         });
       } catch (err) {
-        // If doc does not exist yet, recreate
         await registerOrUpdateActiveUnit(session, newStatus);
       }
     }
@@ -238,11 +408,13 @@ export default function App() {
 
   // FEATURE 2: Real-time Noodknop / Panic Trigger
   const handleTriggerPanic = async () => {
-    const unitName = session?.callsign || 'SURVEILLANCE';
+    if (!session) return;
+    const unitName = session.callsign;
+    const serverId = session.serverId;
     const now = Date.now();
 
     try {
-      await updateDoc(doc(db, COLLECTIONS.SYSTEM_STATE, 'global'), {
+      await updateDoc(doc(db, COLLECTIONS.SERVERS, serverId), {
         active_panic: true,
         panic_unit: unitName,
         panic_time: now,
@@ -250,55 +422,58 @@ export default function App() {
         updated_at: new Date().toISOString(),
       });
 
-      if (session) {
-        const unitDocId = `unit-${session.callsign.toLowerCase().replace(/[^a-z0-9-]/g, '')}`;
-        await updateDoc(doc(db, COLLECTIONS.ACTIVE_UNITS, unitDocId), {
-          is_panic: true,
-          last_panic_time: now,
-          current_status: 'Status 4', // Automatically set to Ter Plaatse
-          updated_at: new Date().toISOString(),
-        }).catch(() => {});
-      }
+      const unitDocId = `unit-${session.serverId.toLowerCase()}-${session.callsign.toLowerCase().replace(/[^a-z0-9-]/g, '')}`;
+      await updateDoc(doc(db, COLLECTIONS.ACTIVE_UNITS, unitDocId), {
+        is_panic: true,
+        last_panic_time: now,
+        current_status: 'Status 4',
+        updated_at: new Date().toISOString(),
+      }).catch(() => {});
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.SYSTEM_STATE}/global`);
+      console.error('Fout bij activeren noodknop:', err);
     }
   };
 
   // Clear Panic
   const handleClearPanic = async () => {
+    if (!session) return;
+    const serverId = session.serverId;
     try {
-      await updateDoc(doc(db, COLLECTIONS.SYSTEM_STATE, 'global'), {
+      await updateDoc(doc(db, COLLECTIONS.SERVERS, serverId), {
         active_panic: false,
         alert_level: 'Normaal',
         updated_at: new Date().toISOString(),
       });
 
-      // Clear is_panic flags on active units
       const unitSnaps = await getDocs(collection(db, COLLECTIONS.ACTIVE_UNITS));
       unitSnaps.forEach(async (uDoc) => {
-        if (uDoc.data().is_panic) {
+        const data = uDoc.data();
+        if (data.server_id === serverId && data.is_panic) {
           await updateDoc(doc(db, COLLECTIONS.ACTIVE_UNITS, uDoc.id), {
             is_panic: false,
           }).catch(() => {});
         }
       });
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.SYSTEM_STATE}/global`);
+      console.error('Fout bij resetten noodknop:', err);
     }
   };
 
   // Map Marker handlers
-  const handleAddMarker = async (marker: Omit<MapMarker, 'id' | 'timestamp'>) => {
+  const handleAddMarker = async (marker: Omit<MapMarker, 'id' | 'timestamp' | 'server_id'>) => {
+    if (!session) return;
+    const serverId = session.serverId;
     const markerId = `marker-${Date.now()}`;
     const payload: MapMarker = {
       ...marker,
       id: markerId,
+      server_id: serverId,
       timestamp: Date.now(),
     };
     try {
       await setDoc(doc(db, COLLECTIONS.MAP_MARKERS, markerId), payload);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.MAP_MARKERS}/${markerId}`);
+      console.error('Fout bij toevoegen kaartmarkering:', err);
     }
   };
 
@@ -306,7 +481,7 @@ export default function App() {
     try {
       await deleteDoc(doc(db, COLLECTIONS.MAP_MARKERS, markerId));
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `${COLLECTIONS.MAP_MARKERS}/${markerId}`);
+      console.error('Fout bij wissen kaartmarkering:', err);
     }
   };
 
@@ -322,21 +497,24 @@ export default function App() {
         updated_at: new Date().toISOString(),
       });
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `${COLLECTIONS.VEHICLES}/${vehicleId}`);
+      console.error('Fout bij bijwerken signalering voertuig:', err);
     }
   };
 
-  const handleAddVehicle = async (vehicle: Omit<Vehicle, 'id' | 'updated_at'>) => {
-    const vehicleId = vehicle.license_plate.replace(/[^A-Z0-9-]/g, '');
+  const handleAddVehicle = async (vehicle: Omit<Vehicle, 'id' | 'updated_at' | 'server_id'>) => {
+    if (!session) return;
+    const serverId = session.serverId;
+    const vehicleId = `${serverId}-${vehicle.license_plate.replace(/[^A-Z0-9-]/g, '')}`;
     const payload: Vehicle = {
       ...vehicle,
       id: vehicleId,
+      server_id: serverId,
       updated_at: new Date().toISOString(),
     };
     try {
       await setDoc(doc(db, COLLECTIONS.VEHICLES, vehicleId), payload);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.VEHICLES}/${vehicleId}`);
+      console.error('Fout bij opslaan voertuig:', err);
     }
   };
 
@@ -347,7 +525,7 @@ export default function App() {
         updated_at: new Date().toISOString(),
       });
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `${COLLECTIONS.VEHICLES}/${vehicleId}`);
+      console.error('Fout bij opslaan voertuignotitie:', err);
     }
   };
 
@@ -359,7 +537,7 @@ export default function App() {
         updated_at: new Date().toISOString(),
       });
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `${COLLECTIONS.CITIZENS}/${citizenId}`);
+      console.error('Fout bij wijzigen signalering burger:', err);
     }
   };
 
@@ -370,7 +548,7 @@ export default function App() {
         updated_at: new Date().toISOString(),
       });
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `${COLLECTIONS.CITIZENS}/${citizenId}`);
+      console.error('Fout bij wijzigen rijbewijsstatus:', err);
     }
   };
 
@@ -390,22 +568,25 @@ export default function App() {
         updated_at: new Date().toISOString(),
       });
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `${COLLECTIONS.CITIZENS}/${citizenId}`);
+      console.error('Fout bij toevoegen boete:', err);
     }
   };
 
-  const handleAddCitizen = async (citizen: Omit<Citizen, 'id' | 'fines_list' | 'updated_at'>) => {
-    const citizenId = `cit-${Date.now()}`;
+  const handleAddCitizen = async (citizen: Omit<Citizen, 'id' | 'fines_list' | 'updated_at' | 'server_id'>) => {
+    if (!session) return;
+    const serverId = session.serverId;
+    const citizenId = `${serverId}-cit-${Date.now()}`;
     const payload: Citizen = {
       ...citizen,
       id: citizenId,
+      server_id: serverId,
       fines_list: [],
       updated_at: new Date().toISOString(),
     };
     try {
       await setDoc(doc(db, COLLECTIONS.CITIZENS, citizenId), payload);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `${COLLECTIONS.CITIZENS}/${citizenId}`);
+      console.error('Fout bij toevoegen burger:', err);
     }
   };
 
@@ -416,70 +597,76 @@ export default function App() {
         updated_at: new Date().toISOString(),
       });
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `${COLLECTIONS.CITIZENS}/${citizenId}`);
+      console.error('Fout bij opslaan burgernotitie:', err);
     }
   };
 
   // Admin Actions
   const handleClearMapMarkers = async () => {
+    if (!session) return;
+    const serverId = session.serverId;
     try {
       const snap = await getDocs(collection(db, COLLECTIONS.MAP_MARKERS));
       for (const d of snap.docs) {
-        await deleteDoc(doc(db, COLLECTIONS.MAP_MARKERS, d.id));
+        if (d.data().server_id === serverId) {
+          await deleteDoc(doc(db, COLLECTIONS.MAP_MARKERS, d.id));
+        }
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, COLLECTIONS.MAP_MARKERS);
+      console.error('Fout bij wissen markeringen:', err);
     }
   };
 
   const handleClearUnitsList = async () => {
+    if (!session) return;
+    const serverId = session.serverId;
     try {
       const snap = await getDocs(collection(db, COLLECTIONS.ACTIVE_UNITS));
       for (const d of snap.docs) {
-        await deleteDoc(doc(db, COLLECTIONS.ACTIVE_UNITS, d.id));
+        if (d.data().server_id === serverId) {
+          await deleteDoc(doc(db, COLLECTIONS.ACTIVE_UNITS, d.id));
+        }
       }
-      // Re-add current user if logged in
       if (session) {
         await registerOrUpdateActiveUnit(session, currentStatus);
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, COLLECTIONS.ACTIVE_UNITS);
+      console.error('Fout bij opschonen eenheden:', err);
     }
   };
 
   const handleUpdateSystemState = async (update: Partial<SystemState>) => {
+    if (!session) return;
+    const serverId = session.serverId;
     try {
-      await updateDoc(doc(db, COLLECTIONS.SYSTEM_STATE, 'global'), update);
+      await updateDoc(doc(db, COLLECTIONS.SERVERS, serverId), update);
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `${COLLECTIONS.SYSTEM_STATE}/global`);
+      console.error('Fout bij bijwerken status:', err);
+    }
+  };
+
+  const handleUpdateServerSettings = async (update: Partial<CadServer>) => {
+    if (!session) return;
+    const serverId = session.serverId;
+    try {
+      await updateDoc(doc(db, COLLECTIONS.SERVERS, serverId), update);
+      if (update.name && session) {
+        const updatedSession = { ...session, serverName: update.name };
+        setSession(updatedSession);
+        try {
+          localStorage.setItem('emh_cad_session', JSON.stringify(updatedSession));
+        } catch {
+          // Ignored
+        }
+      }
+    } catch (err) {
+      console.error('Fout bij opslaan server instellingen:', err);
     }
   };
 
   const handleReseedData = async () => {
-    try {
-      for (const v of INITIAL_VEHICLES) {
-        await setDoc(doc(db, COLLECTIONS.VEHICLES, v.id), v);
-      }
-      for (const c of INITIAL_CITIZENS) {
-        await setDoc(doc(db, COLLECTIONS.CITIZENS, c.id), c);
-      }
-      for (const u of INITIAL_ACTIVE_UNITS) {
-        await setDoc(doc(db, COLLECTIONS.ACTIVE_UNITS, u.id), u);
-      }
-      for (const m of INITIAL_MAP_MARKERS) {
-        await setDoc(doc(db, COLLECTIONS.MAP_MARKERS, m.id), m);
-      }
-      await updateDoc(doc(db, COLLECTIONS.SYSTEM_STATE, 'global'), {
-        active_panic: false,
-        panic_unit: '',
-        panic_time: 0,
-        alert_level: 'Normaal',
-        broadcast_message: 'Meldkamer Hamburg online. Portofoons en GPS gekoppeld.',
-        updated_at: new Date().toISOString(),
-      });
-    } catch (err) {
-      console.error('Error reseeding:', err);
-    }
+    if (!session) return;
+    await seedServerDemoData(session.serverId);
   };
 
   const toggleMute = () => {
@@ -491,37 +678,57 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       
-      {/* 1. Master Password Login Modal */}
-      {!session && <LoginModal onLogin={handleLogin} />}
+      {/* 1. AGENT AUTHENTICATIE: Iedereen moet eerst inloggen / registreren */}
+      {!currentUserAccount && (
+        <UserAuthModal
+          onLoginSuccess={handleUserLoginSuccess}
+          onGetUserAccount={getUserAccount}
+          onRegisterAccount={registerUserAccount}
+        />
+      )}
 
-      {/* 2. REAL-TIME NOODKNOP / PANIC OVERLAY (triggers on all connected devices) */}
-      <PanicOverlay
-        activePanic={systemState.active_panic}
-        panicUnit={systemState.panic_unit}
-        panicTime={systemState.panic_time}
-        onClearPanic={handleClearPanic}
-        isAdmin={session?.isAdmin}
-      />
+      {/* 2. SERVER HUB: Mijn Servers, Server Deelnemen (met code + ww) of Server Maken */}
+      {currentUserAccount && (!session || isSwitchingServer) && (
+        <ServerHubModal
+          currentUser={currentUserAccount}
+          allServers={servers}
+          onJoinServer={handleJoinServer}
+          onCreateServer={handleCreateServer}
+          onLogoutAccount={handleLogoutAccount}
+        />
+      )}
 
-      {/* 3. Header & Portofoon Quick Controls */}
-      {session && (
+      {/* 3. REAL-TIME NOODKNOP / PANIC OVERLAY */}
+      {session && !isSwitchingServer && (
+        <PanicOverlay
+          activePanic={currentSystemState.active_panic}
+          panicUnit={currentSystemState.panic_unit}
+          panicTime={currentSystemState.panic_time}
+          onClearPanic={handleClearPanic}
+          isAdmin={session?.isAdmin}
+        />
+      )}
+
+      {/* 4. Header & Portofoon Quick Controls */}
+      {session && !isSwitchingServer && (
         <Header
           session={session}
-          systemState={systemState}
+          systemState={currentSystemState}
           currentStatus={currentStatus}
           activeTab={activeTab}
           onTabChange={setActiveTab}
           onStatusChange={handleStatusChange}
           onTriggerPanic={handleTriggerPanic}
           onOpenAdmin={() => setIsAdminModalOpen(true)}
-          onLogout={handleLogout}
+          onSwitchServer={() => setIsSwitchingServer(true)}
+          onLogout={handleLeaveServer}
           isMuted={isMuted}
           onToggleMute={toggleMute}
         />
       )}
 
-      {/* 4. Main Body Content (Laptop grid / Mobile stacked) */}
-      {session && (
+      {/* 5. Main Body Content */}
+      {session && !isSwitchingServer && (
         <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 lg:p-6 pb-20">
           {activeTab === 'map' && (
             <InteractiveMap
@@ -566,17 +773,22 @@ export default function App() {
         </main>
       )}
 
-      {/* 5. Admin / Meldkamer Modal */}
-      <AdminModal
-        isOpen={isAdminModalOpen}
-        onClose={() => setIsAdminModalOpen(false)}
-        systemState={systemState}
-        onClearMarkers={handleClearMapMarkers}
-        onClearPanic={handleClearPanic}
-        onClearUnits={handleClearUnitsList}
-        onUpdateSystemState={handleUpdateSystemState}
-        onReseedData={handleReseedData}
-      />
+      {/* 6. Admin & Server Management Modal */}
+      {session && (
+        <AdminModal
+          isOpen={isAdminModalOpen}
+          onClose={() => setIsAdminModalOpen(false)}
+          server={currentServer}
+          isOwner={session?.isOwner || false}
+          systemState={currentSystemState}
+          onClearMarkers={handleClearMapMarkers}
+          onClearPanic={handleClearPanic}
+          onClearUnits={handleClearUnitsList}
+          onUpdateSystemState={handleUpdateSystemState}
+          onUpdateServerSettings={handleUpdateServerSettings}
+          onReseedData={handleReseedData}
+        />
+      )}
 
     </div>
   );

@@ -1,10 +1,49 @@
 {
   "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Geregistreerde agent / gebruiker in het CAD systeem",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string", "maxLength": 64 },
+        "password": { "type": "string", "maxLength": 128 },
+        "display_name": { "type": "string", "maxLength": 128 },
+        "joined_server_ids": { "type": "array" },
+        "created_server_ids": { "type": "array" },
+        "created_at": { "type": "string", "maxLength": 64 },
+        "last_login": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["username", "password"]
+    },
+    "CadServer": {
+      "title": "CadServer",
+      "description": "Emergency Hamburg Roleplay Server met eigen instellingen, diensten en ledenlijst",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 500 },
+        "creator_username": { "type": "string", "maxLength": 128 },
+        "join_password": { "type": "string", "maxLength": 64 },
+        "admin_password": { "type": "string", "maxLength": 64 },
+        "departments": { "type": "array" },
+        "members": { "type": "array" },
+        "alert_level": { "type": "string", "maxLength": 32 },
+        "broadcast_message": { "type": "string", "maxLength": 500 },
+        "active_panic": { "type": "boolean" },
+        "panic_unit": { "type": "string", "maxLength": 64 },
+        "panic_time": { "type": "number" },
+        "created_at": { "type": "string", "maxLength": 64 },
+        "updated_at": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "name", "join_password", "admin_password"]
+    },
     "Vehicle": {
       "title": "Vehicle",
       "description": "Voertuig registratie in Emergency Hamburg CAD",
       "type": "object",
       "properties": {
+        "server_id": { "type": "string", "maxLength": 64 },
         "license_plate": { "type": "string", "maxLength": 32 },
         "owner": { "type": "string", "maxLength": 128 },
         "notes": { "type": "string", "maxLength": 1000 },
@@ -22,6 +61,7 @@
       "description": "Burger en antecedenten record",
       "type": "object",
       "properties": {
+        "server_id": { "type": "string", "maxLength": 64 },
         "name": { "type": "string", "maxLength": 128 },
         "driver_license_status": { "type": "string", "maxLength": 64 },
         "fines_list": { "type": "array" },
@@ -37,6 +77,8 @@
       "description": "Actieve eenheid op straat of in de meldkamer",
       "type": "object",
       "properties": {
+        "server_id": { "type": "string", "maxLength": 64 },
+        "username": { "type": "string", "maxLength": 64 },
         "unit_name": { "type": "string", "maxLength": 64 },
         "current_status": { "type": "string", "maxLength": 32 },
         "department": { "type": "string", "maxLength": 64 },
@@ -52,6 +94,7 @@
       "description": "Incident of flitser marker op de Emergency Hamburg kaart",
       "type": "object",
       "properties": {
+        "server_id": { "type": "string", "maxLength": 64 },
         "id": { "type": "string", "maxLength": 64 },
         "type": { "type": "string", "enum": ["incident", "speed_camera", "checkpoint"] },
         "description": { "type": "string", "maxLength": 500 },
@@ -69,6 +112,7 @@
       "description": "Globale status van de meldkamer en noodknop",
       "type": "object",
       "properties": {
+        "server_id": { "type": "string", "maxLength": 64 },
         "active_panic": { "type": "boolean" },
         "panic_unit": { "type": "string", "maxLength": 64 },
         "panic_time": { "type": "number" },
@@ -80,6 +124,14 @@
     }
   },
   "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Gebruikers accounts en gekoppelde servers"
+    },
+    "/servers/{serverId}": {
+      "schema": { "$ref": "#/entities/CadServer" },
+      "description": "Emergency Hamburg Servers"
+    },
     "/vehicles/{vehicleId}": {
       "schema": { "$ref": "#/entities/Vehicle" },
       "description": "Geregistreerde voertuigen in Hamburg"

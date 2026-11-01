@@ -1,19 +1,38 @@
-import { Citizen, Vehicle, UnitStatus, MapMarker } from '../types/cad';
+import { Citizen, Vehicle, UnitStatus, ServerDepartment, CadServer, UserAccount } from '../types/cad';
 
-export const MASTER_CAD_PASSWORD = 'EMH';
-export const ADMIN_CAD_PASSWORD = 'MELD';
+export const DEFAULT_DEPARTMENTS: ServerDepartment[] = [
+  { id: 'politie_noodhulp', name: 'Politie Noodhulp / Surveillance', badge: 'Politie', color: 'bg-blue-600', enabled: true },
+  { id: 'motorpolitie', name: 'Motorpolitie / Verkeer', badge: 'Motor', color: 'bg-indigo-600', enabled: true },
+  { id: 'dsi_arrestatieteam', name: 'Dienst Speciale Interventies (DSI / AT)', badge: 'DSI', color: 'bg-slate-700', enabled: true },
+  { id: 'kmar', name: 'Koninklijke Marechaussee (KMar)', badge: 'KMar', color: 'bg-cyan-700', enabled: true },
+  { id: 'handhaving', name: 'Handhaving & Verkeersregelaars (BOA)', badge: 'BOA', color: 'bg-yellow-600', enabled: true },
+  { id: 'meldkamer', name: 'Meldkamer Centralist (Dispatch)', badge: 'Meldkamer', color: 'bg-purple-600', enabled: true },
+  { id: 'ambulance', name: 'Ambulance & Traumateam (UKE)', badge: 'Ambulance', color: 'bg-emerald-600', enabled: true },
+  { id: 'brandweer', name: 'Brandweer (Feuerwehr Hamburg)', badge: 'Brandweer', color: 'bg-red-600', enabled: true },
+  { id: 'douane', name: 'Douane & Havenbeveiliging', badge: 'Douane', color: 'bg-teal-700', enabled: false },
+];
 
-export function checkMasterPassword(input: string): boolean {
-  if (!input) return false;
-  const clean = input.trim().toUpperCase();
-  return clean === MASTER_CAD_PASSWORD || clean === 'EMH112' || clean === 'HAMBURG';
+export function cleanUsername(input: string): string {
+  if (!input) return '';
+  return input.toLowerCase().replace(/[^a-z0-9_.-]/g, '').trim();
 }
 
-export function checkAdminPassword(input: string): boolean {
-  if (!input) return false;
-  const clean = input.trim().toUpperCase();
-  return clean === ADMIN_CAD_PASSWORD || clean === 'MELD112' || clean === 'ADMIN112';
+export function generateServerCode(): string {
+  const num = Math.floor(1000 + Math.random() * 9000);
+  return `EMH-${num}`;
 }
+
+export function checkServerJoinPassword(input: string, serverPassword: string): boolean {
+  if (!input || !serverPassword) return false;
+  return input.trim() === serverPassword.trim();
+}
+
+export function checkServerAdminPassword(input: string, serverAdminPassword: string): boolean {
+  if (!input || !serverAdminPassword) return false;
+  return input.trim() === serverAdminPassword.trim();
+}
+
+export const checkAdminPassword = checkServerAdminPassword;
 
 export function formatLicensePlate(input: string): string {
   if (!input) return '';

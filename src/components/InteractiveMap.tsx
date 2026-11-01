@@ -19,7 +19,7 @@ import { formatTimeAgo } from '../utils/cadLogic';
 
 interface InteractiveMapProps {
   markers: MapMarker[];
-  onAddMarker: (marker: Omit<MapMarker, 'id' | 'timestamp'>) => Promise<void>;
+  onAddMarker: (marker: Omit<MapMarker, 'id' | 'timestamp' | 'server_id'>) => Promise<void>;
   onDeleteMarker: (markerId: string) => Promise<void>;
   onRespondToMarker: (marker: MapMarker) => void;
   currentUserCallsign: string;

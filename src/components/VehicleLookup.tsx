@@ -18,7 +18,7 @@ import { filterVehicles, formatLicensePlate } from '../utils/cadLogic';
 interface VehicleLookupProps {
   vehicles: Vehicle[];
   onToggleWanted: (vehicleId: string, currentWanted: boolean) => Promise<void>;
-  onAddVehicle: (vehicle: Omit<Vehicle, 'id' | 'updated_at'>) => Promise<void>;
+  onAddVehicle: (vehicle: Omit<Vehicle, 'id' | 'updated_at' | 'server_id'>) => Promise<void>;
   onUpdateNotes: (vehicleId: string, notes: string) => Promise<void>;
 }
 

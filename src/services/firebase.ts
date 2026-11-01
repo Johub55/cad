@@ -4,16 +4,26 @@ import {
   collection,
   doc,
   setDoc,
+  getDoc,
   updateDoc,
   deleteDoc,
   onSnapshot,
   getDocs,
-  getDocFromServer,
-  DocumentData
+  getDocFromServer
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import rawFirebaseConfig from '../../firebase-applet-config.json';
-import { Vehicle, Citizen, ActiveUnit, MapMarker, SystemState } from '../types/cad';
+import {
+  Vehicle,
+  Citizen,
+  ActiveUnit,
+  MapMarker,
+  SystemState,
+  CadServer,
+  UserAccount,
+  ServerMember
+} from '../types/cad';
+import { DEFAULT_DEPARTMENTS } from '../utils/cadLogic';
 
 // Resilient configuration with fallback values for standalone / GitHub Pages hosting
 const firebaseConfig = {
@@ -70,19 +80,10 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
-// Test connection on boot
-export async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'system_state', 'global'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firebase client is offline or initializing.');
-    }
-  }
-}
-
 // Collections references
 export const COLLECTIONS = {
+  USERS: 'users',
+  SERVERS: 'servers',
   VEHICLES: 'vehicles',
   CITIZENS: 'citizens',
   ACTIVE_UNITS: 'active_units',
@@ -90,22 +91,123 @@ export const COLLECTIONS = {
   SYSTEM_STATE: 'system_state',
 };
 
-// Initial Seed Data for Emergency Hamburg (Roblox)
-export const INITIAL_VEHICLES: Vehicle[] = [
+// No default public servers or example credentials - all servers are created and owned by users
+export const INITIAL_SERVERS: CadServer[] = [];
+
+// User Account Firestore Operations
+export async function getUserAccount(username: string): Promise<UserAccount | null> {
+  const clean = username.trim().toLowerCase();
+  try {
+    const snap = await getDoc(doc(db, COLLECTIONS.USERS, clean));
+    if (snap.exists()) {
+      return snap.data() as UserAccount;
+    }
+    return null;
+  } catch (err) {
+    console.error('Fout bij ophalen gebruikersaccount:', err);
+    return null;
+  }
+}
+
+export async function registerUserAccount(account: UserAccount): Promise<void> {
+  const clean = account.username.trim().toLowerCase();
+  try {
+    await setDoc(doc(db, COLLECTIONS.USERS, clean), {
+      ...account,
+      username: clean,
+    });
+  } catch (err) {
+    console.error('Fout bij opslaan gebruikersaccount:', err);
+    throw err;
+  }
+}
+
+export async function updateUserJoinedServers(
+  username: string,
+  serverId: string,
+  isCreated: boolean = false
+): Promise<void> {
+  const clean = username.trim().toLowerCase();
+  try {
+    const snap = await getDoc(doc(db, COLLECTIONS.USERS, clean));
+    if (snap.exists()) {
+      const data = snap.data() as UserAccount;
+      const joinedSet = new Set(data.joined_server_ids || []);
+      joinedSet.add(serverId);
+
+      const createdSet = new Set(data.created_server_ids || []);
+      if (isCreated) {
+        createdSet.add(serverId);
+      }
+
+      await updateDoc(doc(db, COLLECTIONS.USERS, clean), {
+        joined_server_ids: Array.from(joinedSet),
+        created_server_ids: Array.from(createdSet),
+        last_login: new Date().toISOString(),
+      });
+    }
+  } catch (err) {
+    console.error('Fout bij bijwerken servers van gebruiker:', err);
+  }
+}
+
+export async function addOrUpdateServerMember(
+  serverId: string,
+  member: ServerMember
+): Promise<void> {
+  try {
+    const serverRef = doc(db, COLLECTIONS.SERVERS, serverId);
+    const snap = await getDoc(serverRef);
+    if (!snap.exists()) return;
+
+    const data = snap.data() as CadServer;
+    const existingMembers = data.members || [];
+    
+    // Check if member already exists
+    const idx = existingMembers.findIndex(
+      (m) => m.username.toLowerCase() === member.username.toLowerCase()
+    );
+
+    let updatedMembers: ServerMember[];
+    if (idx >= 0) {
+      updatedMembers = [...existingMembers];
+      updatedMembers[idx] = {
+        ...updatedMembers[idx],
+        ...member,
+        is_online: true,
+        last_active: new Date().toISOString(),
+      };
+    } else {
+      updatedMembers = [...existingMembers, member];
+    }
+
+    await updateDoc(serverRef, {
+      members: updatedMembers,
+      updated_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('Fout bij bijwerken van server lid:', err);
+  }
+}
+
+// Sample roleplay data generators for manual import in Admin Panel if requested
+export const SAMPLE_VEHICLES = (serverId: string): Vehicle[] => [
   {
-    id: 'HH-PD-112',
+    id: `${serverId}-HH-PD-112`,
+    server_id: serverId,
     license_plate: 'HH-PD-112',
     owner: 'Politie Hamburg (Dienstwagen)',
     model: 'Mercedes-Benz E-Klasse Estate Noodhulp',
     color: 'Zilver/Blauw/Fluogeel',
-    notes: 'Dienstvoertuig Noodhulp Hamburg Revier 14. Voorzien van zwaailichten en C2000.',
+    notes: 'Dienstvoertuig Noodhulp Hamburg. Voorzien van optische- en geluidssignalen.',
     wanted_status: false,
     apk_status: 'Goedgekeurd',
     insurance_status: 'Verzekerd',
     updated_at: new Date().toISOString(),
   },
   {
-    id: 'HH-BM-904',
+    id: `${serverId}-HH-BM-904`,
+    server_id: serverId,
     license_plate: 'HH-BM-904',
     owner: 'Onbekende Verdachte',
     model: 'BMW M5 Competition F90',
@@ -117,47 +219,25 @@ export const INITIAL_VEHICLES: Vehicle[] = [
     updated_at: new Date().toISOString(),
   },
   {
-    id: 'HH-VK-802',
+    id: `${serverId}-HH-VK-802`,
+    server_id: serverId,
     license_plate: 'HH-VK-802',
     owner: 'Lars Schmidt',
     model: 'Volkswagen Golf 8 GTI',
     color: 'Tornado Rood',
-    notes: 'Regelmatig gezien bij straatraces aan de Elbe haven. APK is 2 maanden verlopen.',
+    notes: 'Regelmatig gezien bij straatraces aan de Elbe haven. APK verlopen.',
     wanted_status: false,
     apk_status: 'Verlopen',
     insurance_status: 'Verzekerd',
     updated_at: new Date().toISOString(),
   },
-  {
-    id: 'HH-AU-451',
-    license_plate: 'HH-AU-451',
-    owner: 'Maxim van Dijk',
-    model: 'Audi RS4 Avant',
-    color: 'Nardo Grijs',
-    notes: 'Geen signaleringen. Zakelijke leaserijder.',
-    wanted_status: false,
-    apk_status: 'Goedgekeurd',
-    insurance_status: 'Verzekerd',
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: 'HH-TX-101',
-    license_plate: 'HH-TX-101',
-    owner: 'Ahmet Yilmaz',
-    model: 'Mercedes-Benz Vito Tourer',
-    color: 'Helder Wit',
-    notes: 'Vergunde Hamburg taxibus. Alles in orde.',
-    wanted_status: false,
-    apk_status: 'Goedgekeurd',
-    insurance_status: 'Verzekerd',
-    updated_at: new Date().toISOString(),
-  },
 ];
 
-export const INITIAL_CITIZENS: Citizen[] = [
+export const SAMPLE_CITIZENS = (serverId: string): Citizen[] => [
   {
-    id: 'cit-1',
-    name: 'Dennis "De Schim" Meyer',
+    id: `${serverId}-cit-1`,
+    server_id: serverId,
+    name: 'Dennis Meyer',
     dob: '17-03-1992',
     driver_license_status: 'Ingetrokken',
     wanted_status: true,
@@ -166,11 +246,11 @@ export const INITIAL_CITIZENS: Citizen[] = [
     fines_list: [
       { id: 'f-101', reason: 'Snelheidsovertreding 45 km/u binnen bebouwde kom', amount: 480, date: '2026-10-12', officer: '10-01' },
       { id: 'f-102', reason: 'Negeren stopteken politie', amount: 550, date: '2026-10-18', officer: 'Motor-01' },
-      { id: 'f-103', reason: 'Rijden met ingevorderd rijbewijs', amount: 800, date: '2026-10-25', officer: '10-02' }
     ]
   },
   {
-    id: 'cit-2',
+    id: `${serverId}-cit-2`,
+    server_id: serverId,
     name: 'Lars Schmidt',
     dob: '14-04-1996',
     driver_license_status: 'Geldig',
@@ -179,168 +259,72 @@ export const INITIAL_CITIZENS: Citizen[] = [
     updated_at: new Date().toISOString(),
     fines_list: [
       { id: 'f-201', reason: 'Veroorzaken geluidshinder met uitlaat', amount: 280, date: '2026-10-04', officer: '10-01' },
-      { id: 'f-202', reason: 'Vervallen APK keuring', amount: 180, date: '2026-10-28', officer: '10-03' }
     ]
   },
   {
-    id: 'cit-3',
+    id: `${serverId}-cit-3`,
+    server_id: serverId,
     name: 'Maxim van Dijk',
     dob: '29-11-1988',
     driver_license_status: 'Geldig',
     wanted_status: false,
-    notes: 'Schone lei. Eigenaar van logistiek bedrijf in Hamburg haven.',
+    notes: 'Schone lei. Eigenaar van transportbedrijf in Hamburg haven.',
     updated_at: new Date().toISOString(),
     fines_list: []
-  },
-  {
-    id: 'cit-4',
-    name: 'Emma Becker',
-    dob: '08-07-2002',
-    driver_license_status: 'Geschorst',
-    wanted_status: false,
-    notes: 'Rijbewijs geschorst na herhaaldelijk gebruik van mobiele telefoon achter het stuur.',
-    updated_at: new Date().toISOString(),
-    fines_list: [
-      { id: 'f-401', reason: 'Vasthouden mobiele telefoon tijdens besturen motorvoertuig', amount: 420, date: '2026-10-19', officer: 'Motor-01' }
-    ]
-  },
-  {
-    id: 'cit-5',
-    name: 'Robin de Boer',
-    dob: '21-02-2004',
-    driver_license_status: 'Geen',
-    wanted_status: false,
-    notes: 'Heeft nog nooit een rijbewijs behaald.',
-    updated_at: new Date().toISOString(),
-    fines_list: [
-      { id: 'f-501', reason: 'Besturen van personenauto zonder rijbewijs', amount: 400, date: '2026-10-22', officer: '10-02' }
-    ]
   }
 ];
 
-export const INITIAL_MAP_MARKERS: MapMarker[] = [
+export const SAMPLE_MAP_MARKERS = (serverId: string): MapMarker[] => [
   {
-    id: 'm-1',
+    id: `${serverId}-m-1`,
+    server_id: serverId,
     type: 'incident',
-    title: 'Bankoverval Jungfernstieg',
-    description: 'Prio 1: Melding van overvalalarm bij Hamburger Sparkasse. Twee gemaskerde personen met automatische wapens gesignaleerd.',
+    title: 'Melding Bankoverval Jungfernstieg',
+    description: 'Prio 1: Overvalalarm bij bankfiliaal. Twee verdachten met automatische wapens gesignaleerd.',
     x_pos: 48,
     y_pos: 38,
     priority: 'Prio 1',
-    created_by: 'Meldkamer 01',
+    created_by: 'Meldkamer',
     timestamp: Date.now() - 360000,
   },
   {
-    id: 'm-2',
+    id: `${serverId}-m-2`,
+    server_id: serverId,
     type: 'speed_camera',
     title: 'Mobiele Flitser A7 Elbtunnel',
     description: 'Snelheidscontrole 80 km/u trajectcontrole richting haven. Laserunit opgesteld.',
     x_pos: 24,
     y_pos: 62,
     priority: 'Prio 3',
-    created_by: 'Motor-01',
+    created_by: 'Verkeerspolitie',
     timestamp: Date.now() - 1200000,
-  },
-  {
-    id: 'm-3',
-    type: 'incident',
-    title: 'Aanrijding met letsel Havenkade',
-    description: 'Prio 2: Kop-staart botsing tussen vrachtwagen en bestelbus. Verkeersstremming richting terminal.',
-    x_pos: 70,
-    y_pos: 74,
-    priority: 'Prio 2',
-    created_by: '10-02',
-    timestamp: Date.now() - 900000,
   }
 ];
 
-export const INITIAL_ACTIVE_UNITS: ActiveUnit[] = [
-  {
-    id: 'unit-10-01',
-    unit_name: '10-01',
-    current_status: 'Status 1',
-    department: 'Politie',
-    officer_name: 'Hoofdagent Jansen',
-    is_panic: false,
-    last_panic_time: null,
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: 'unit-10-02',
-    unit_name: '10-02',
-    current_status: 'Status 3',
-    department: 'Politie',
-    officer_name: 'Agent De Vries',
-    is_panic: false,
-    last_panic_time: null,
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: 'unit-motor-01',
-    unit_name: 'Motor-01',
-    current_status: 'Status 1',
-    department: 'Politie',
-    officer_name: 'Brigadier Bakker',
-    is_panic: false,
-    last_panic_time: null,
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: 'unit-mk-01',
-    unit_name: 'Meldkamer 01',
-    current_status: 'Status 2',
-    department: 'Meldkamer',
-    officer_name: 'Centralist Visser',
-    is_panic: false,
-    last_panic_time: null,
-    updated_at: new Date().toISOString(),
-  }
-];
-
-// Helper to check if collections are empty, and seed if so
-export async function seedInitialDataIfNeeded() {
+// Helper to seed sample data into an active server when requested
+export async function seedServerDemoData(serverId: string) {
   try {
-    const sysDocRef = doc(db, COLLECTIONS.SYSTEM_STATE, 'global');
-    const sysSnap = await getDocs(collection(db, COLLECTIONS.SYSTEM_STATE));
-    if (sysSnap.empty) {
-      await setDoc(sysDocRef, {
-        active_panic: false,
-        panic_unit: '',
-        panic_time: 0,
-        alert_level: 'Normaal',
-        broadcast_message: 'Meldkamer Hamburg online. Portofoons en GPS gekoppeld.',
-        updated_at: new Date().toISOString()
-      });
+    for (const v of SAMPLE_VEHICLES(serverId)) {
+      await setDoc(doc(db, COLLECTIONS.VEHICLES, v.id), v);
     }
-
-    const vehSnap = await getDocs(collection(db, COLLECTIONS.VEHICLES));
-    if (vehSnap.empty) {
-      for (const v of INITIAL_VEHICLES) {
-        await setDoc(doc(db, COLLECTIONS.VEHICLES, v.id), v);
-      }
+    for (const c of SAMPLE_CITIZENS(serverId)) {
+      await setDoc(doc(db, COLLECTIONS.CITIZENS, c.id), c);
     }
-
-    const citSnap = await getDocs(collection(db, COLLECTIONS.CITIZENS));
-    if (citSnap.empty) {
-      for (const c of INITIAL_CITIZENS) {
-        await setDoc(doc(db, COLLECTIONS.CITIZENS, c.id), c);
-      }
-    }
-
-    const unitSnap = await getDocs(collection(db, COLLECTIONS.ACTIVE_UNITS));
-    if (unitSnap.empty) {
-      for (const u of INITIAL_ACTIVE_UNITS) {
-        await setDoc(doc(db, COLLECTIONS.ACTIVE_UNITS, u.id), u);
-      }
-    }
-
-    const markSnap = await getDocs(collection(db, COLLECTIONS.MAP_MARKERS));
-    if (markSnap.empty) {
-      for (const m of INITIAL_MAP_MARKERS) {
-        await setDoc(doc(db, COLLECTIONS.MAP_MARKERS, m.id), m);
-      }
+    for (const m of SAMPLE_MAP_MARKERS(serverId)) {
+      await setDoc(doc(db, COLLECTIONS.MAP_MARKERS, m.id), m);
     }
   } catch (err) {
-    console.error('Error seeding initial CAD data:', err);
+    console.error('Fout bij toevoegen van voorbeeld data:', err);
+  }
+}
+
+// Test connection on boot (non-destructive)
+export async function testConnection() {
+  try {
+    await getDocs(collection(db, COLLECTIONS.SERVERS));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn('Firebase client is offline or initializing.');
+    }
   }
 }

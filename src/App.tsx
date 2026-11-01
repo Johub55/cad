@@ -89,9 +89,12 @@ export default function App() {
       (snap) => {
         const list: Vehicle[] = [];
         snap.forEach((d) => list.push({ ...d.data(), id: d.id } as Vehicle));
-        setVehicles(list);
+        setVehicles(list.length > 0 ? list : INITIAL_VEHICLES);
       },
-      (err) => handleFirestoreError(err, OperationType.LIST, COLLECTIONS.VEHICLES)
+      (err) => {
+        console.warn('Firestore vehicles listener warning (falling back to initial data):', err);
+        setVehicles((prev) => (prev.length > 0 ? prev : INITIAL_VEHICLES));
+      }
     );
 
     // Citizens
@@ -100,9 +103,12 @@ export default function App() {
       (snap) => {
         const list: Citizen[] = [];
         snap.forEach((d) => list.push({ ...d.data(), id: d.id } as Citizen));
-        setCitizens(list);
+        setCitizens(list.length > 0 ? list : INITIAL_CITIZENS);
       },
-      (err) => handleFirestoreError(err, OperationType.LIST, COLLECTIONS.CITIZENS)
+      (err) => {
+        console.warn('Firestore citizens listener warning (falling back to initial data):', err);
+        setCitizens((prev) => (prev.length > 0 ? prev : INITIAL_CITIZENS));
+      }
     );
 
     // Active Units
@@ -111,17 +117,21 @@ export default function App() {
       (snap) => {
         const list: ActiveUnit[] = [];
         snap.forEach((d) => list.push({ ...d.data(), id: d.id } as ActiveUnit));
-        setUnits(list);
+        const finalUnits = list.length > 0 ? list : INITIAL_ACTIVE_UNITS;
+        setUnits(finalUnits);
 
         // Keep current unit's status in sync if found
         if (session) {
-          const found = list.find((u) => u.unit_name.toUpperCase() === session.callsign.toUpperCase());
+          const found = finalUnits.find((u) => u.unit_name.toUpperCase() === session.callsign.toUpperCase());
           if (found && found.current_status) {
             setCurrentStatus(found.current_status);
           }
         }
       },
-      (err) => handleFirestoreError(err, OperationType.LIST, COLLECTIONS.ACTIVE_UNITS)
+      (err) => {
+        console.warn('Firestore active units listener warning (falling back to initial data):', err);
+        setUnits((prev) => (prev.length > 0 ? prev : INITIAL_ACTIVE_UNITS));
+      }
     );
 
     // Map Markers
@@ -130,11 +140,13 @@ export default function App() {
       (snap) => {
         const list: MapMarker[] = [];
         snap.forEach((d) => list.push({ ...d.data(), id: d.id } as MapMarker));
-        // Sort newest first
         list.sort((a, b) => b.timestamp - a.timestamp);
-        setMarkers(list);
+        setMarkers(list.length > 0 ? list : INITIAL_MAP_MARKERS);
       },
-      (err) => handleFirestoreError(err, OperationType.LIST, COLLECTIONS.MAP_MARKERS)
+      (err) => {
+        console.warn('Firestore map markers listener warning (falling back to initial data):', err);
+        setMarkers((prev) => (prev.length > 0 ? prev : INITIAL_MAP_MARKERS));
+      }
     );
 
     // System State (Global)
@@ -145,7 +157,9 @@ export default function App() {
           setSystemState(snap.data() as SystemState);
         }
       },
-      (err) => handleFirestoreError(err, OperationType.GET, `${COLLECTIONS.SYSTEM_STATE}/global`)
+      (err) => {
+        console.warn('Firestore system state listener warning:', err);
+      }
     );
 
     return () => {

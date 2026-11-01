@@ -12,8 +12,22 @@ import {
   DocumentData
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+import rawFirebaseConfig from '../../firebase-applet-config.json';
 import { Vehicle, Citizen, ActiveUnit, MapMarker, SystemState } from '../types/cad';
+
+// Resilient configuration with fallback values for standalone / GitHub Pages hosting
+const firebaseConfig = {
+  projectId: rawFirebaseConfig?.projectId || "gen-lang-client-0031413083",
+  appId: rawFirebaseConfig?.appId || "1:289739546372:web:9bed8253a8d3f22b85ba51",
+  apiKey: rawFirebaseConfig?.apiKey || "AIzaSyD9k7jmxRN-Xs2vX598yaUKhUAijPPA9fg",
+  authDomain: rawFirebaseConfig?.authDomain || "gen-lang-client-0031413083.firebaseapp.com",
+  firestoreDatabaseId: rawFirebaseConfig?.firestoreDatabaseId || "ai-studio-ec70ad7e-4914-4824-bd37-77c785b71731",
+  storageBucket: rawFirebaseConfig?.storageBucket || "gen-lang-client-0031413083.firebasestorage.app",
+  messagingSenderId: rawFirebaseConfig?.messagingSenderId || "289739546372",
+  measurementId: rawFirebaseConfig?.measurementId || "",
+  oAuthClientId: rawFirebaseConfig?.oAuthClientId || "289739546372-6l2t1hdpb6pe6lufc1pg3533v37v9lam.apps.googleusercontent.com",
+  recaptchaSiteKey: rawFirebaseConfig?.recaptchaSiteKey || "",
+};
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);

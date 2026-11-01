@@ -1,0 +1,6 @@
+{
+  "name": "Emergency Hamburg - Meldkamer & Politie CAD/MDT",
+  "description": "Real-time Nederlands CAD/MDT systeem voor Emergency Hamburg met live status 1-4, interactieve incidentkaart, noodknop alarm, voertuig- en burgercontroles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

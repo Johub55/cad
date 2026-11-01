@@ -1,0 +1,104 @@
+{
+  "entities": {
+    "Vehicle": {
+      "title": "Vehicle",
+      "description": "Voertuig registratie in Emergency Hamburg CAD",
+      "type": "object",
+      "properties": {
+        "license_plate": { "type": "string", "maxLength": 32 },
+        "owner": { "type": "string", "maxLength": 128 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "wanted_status": { "type": "boolean" },
+        "model": { "type": "string", "maxLength": 64 },
+        "color": { "type": "string", "maxLength": 64 },
+        "apk_status": { "type": "string", "maxLength": 32 },
+        "insurance_status": { "type": "string", "maxLength": 32 },
+        "updated_at": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["license_plate", "owner", "wanted_status"]
+    },
+    "Citizen": {
+      "title": "Citizen",
+      "description": "Burger en antecedenten record",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 128 },
+        "driver_license_status": { "type": "string", "maxLength": 64 },
+        "fines_list": { "type": "array" },
+        "wanted_status": { "type": "boolean" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "dob": { "type": "string", "maxLength": 32 },
+        "updated_at": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["name", "driver_license_status", "wanted_status"]
+    },
+    "ActiveUnit": {
+      "title": "ActiveUnit",
+      "description": "Actieve eenheid op straat of in de meldkamer",
+      "type": "object",
+      "properties": {
+        "unit_name": { "type": "string", "maxLength": 64 },
+        "current_status": { "type": "string", "maxLength": 32 },
+        "department": { "type": "string", "maxLength": 64 },
+        "officer_name": { "type": "string", "maxLength": 128 },
+        "last_panic_time": { "type": "number" },
+        "is_panic": { "type": "boolean" },
+        "updated_at": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["unit_name", "current_status"]
+    },
+    "MapMarker": {
+      "title": "MapMarker",
+      "description": "Incident of flitser marker op de Emergency Hamburg kaart",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "type": { "type": "string", "enum": ["incident", "speed_camera", "checkpoint"] },
+        "description": { "type": "string", "maxLength": 500 },
+        "title": { "type": "string", "maxLength": 128 },
+        "x_pos": { "type": "number" },
+        "y_pos": { "type": "number" },
+        "priority": { "type": "string", "maxLength": 32 },
+        "created_by": { "type": "string", "maxLength": 64 },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "type", "description", "x_pos", "y_pos", "timestamp"]
+    },
+    "SystemState": {
+      "title": "SystemState",
+      "description": "Globale status van de meldkamer en noodknop",
+      "type": "object",
+      "properties": {
+        "active_panic": { "type": "boolean" },
+        "panic_unit": { "type": "string", "maxLength": 64 },
+        "panic_time": { "type": "number" },
+        "alert_level": { "type": "string", "maxLength": 32 },
+        "broadcast_message": { "type": "string", "maxLength": 500 },
+        "updated_at": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["active_panic"]
+    }
+  },
+  "firestore": {
+    "/vehicles/{vehicleId}": {
+      "schema": { "$ref": "#/entities/Vehicle" },
+      "description": "Geregistreerde voertuigen in Hamburg"
+    },
+    "/citizens/{citizenId}": {
+      "schema": { "$ref": "#/entities/Citizen" },
+      "description": "Burgers, antecedenten en boetes"
+    },
+    "/active_units/{unitId}": {
+      "schema": { "$ref": "#/entities/ActiveUnit" },
+      "description": "Live surveillance eenheden en status 1-4"
+    },
+    "/map_markers/{markerId}": {
+      "schema": { "$ref": "#/entities/MapMarker" },
+      "description": "Kaart markers voor incidenten en flitspalen"
+    },
+    "/system_state/{stateId}": {
+      "schema": { "$ref": "#/entities/SystemState" },
+      "description": "Globale meldkamer status en noodknop triggers"
+    }
+  }
+}
